@@ -1,0 +1,51 @@
+name: 'housing_pipeline'
+version: '1.0.0'
+config-version: 2
+
+profile: 'housing_pipeline'
+
+# Paths
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# ── Model materialization and schema routing ──────────────────────────────────
+# generate_schema_name.sql macro ensures each folder writes to its own schema
+# (STAGING, INTERMEDIATE, MARTS) rather than prefixing with the target schema name.
+
+models:
+  housing_pipeline:
+
+    staging:
+      +materialized: view
+      +schema: STAGING
+
+    intermediate:
+      +materialized: table
+      +schema: INTERMEDIATE
+
+    marts:
+      +materialized: table
+      +schema: MARTS
+
+# ── Seed configuration ────────────────────────────────────────────────────────
+seeds:
+  housing_pipeline:
+    +schema: RAW
+    nashville_valid_zips:
+      +column_types:
+        zip_code: varchar(10)
+    nashville_zip_regions:
+      +column_types:
+        zip_code: varchar(10)
+        nashville_region: varchar(100)
+        county_name: varchar(100)
+        county_fips: varchar(10)

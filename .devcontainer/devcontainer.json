@@ -1,0 +1,30 @@
+{
+  "name": "Nashville Housing Platform",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "postCreateCommand": "pip install uv && uv sync",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pylance",
+        "innoverio.vscode-dbt-power-user",
+        "dorzey.vscode-sqlfluff"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "sqlfluff.dialect": "snowflake",
+        "[sql]": {
+          "editor.defaultFormatter": "dorzey.vscode-sqlfluff"
+        }
+      }
+    }
+  },
+  "remoteEnv": {
+    "SNOWFLAKE_ACCOUNT": "${localEnv:SNOWFLAKE_ACCOUNT}",
+    "SNOWFLAKE_USER": "${localEnv:SNOWFLAKE_USER}",
+    "SNOWFLAKE_PASSWORD": "${localEnv:SNOWFLAKE_PASSWORD}",
+    "CENSUS_API_KEY": "${localEnv:CENSUS_API_KEY}",
+    "SLACK_WEBHOOK_URL": "${localEnv:SLACK_WEBHOOK_URL}"
+  },
+  "forwardPorts": [8081]
+}
