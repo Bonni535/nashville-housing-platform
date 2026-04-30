@@ -181,6 +181,8 @@ def write_to_snowflake(
     Write a list of row tuples to a Snowflake table.
 
     Uses executemany for batch insert efficiency.
+    Batches in chunks of 100,000 rows to stay under Snowflake's
+    200,000 expression limit per statement.
     Returns the number of rows written.
 
     Args:
@@ -203,10 +205,23 @@ def write_to_snowflake(
     col_list = ", ".join(columns)
     query = f"INSERT INTO {schema}.{table} ({col_list}) VALUES ({placeholders})"
 
+    # Snowflake limit: 200,000 expressions per statement
+    # Batch into 100,000-row chunks to stay safely under the limit
+    BATCH_SIZE = 100_000
+    total_written = 0
+
     with get_snowflake_conn(schema=schema) as conn:
         cursor = conn.cursor()
-        cursor.executemany(query, rows)
-        conn.commit()
+        for i in range(0, len(rows), BATCH_SIZE):
+            batch = rows[i:i + BATCH_SIZE]
+            cursor.executemany(query, batch)
+            conn.commit()
+            total_written += len(batch)
+            logger.info(
+                f"Wrote batch {i // BATCH_SIZE + 1}: "
+                f"{len(batch):,} rows to {schema}.{table} "
+                f"({total_written:,}/{len(rows):,} total)"
+            )
 
-    logger.info(f"Wrote {len(rows)} rows to {schema}.{table}")
-    return len(rows)
+    logger.info(f"Wrote {total_written:,} rows to {schema}.{table}")
+    return total_written
