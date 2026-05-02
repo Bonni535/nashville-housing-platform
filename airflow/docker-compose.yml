@@ -11,18 +11,6 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
-    # Pipeline env vars — pulled from your .env file via env_file below
-    SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT}
-    SNOWFLAKE_USER: ${SNOWFLAKE_USER}
-    SNOWFLAKE_PASSWORD: ${SNOWFLAKE_PASSWORD}
-    SNOWFLAKE_ROLE: ${SNOWFLAKE_ROLE}
-    SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE}
-    SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE}
-    SNOWFLAKE_SCHEMA: ${SNOWFLAKE_SCHEMA}
-    CENSUS_API_KEY: ${CENSUS_API_KEY}
-    SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
-    PIPELINE_ENV: ${PIPELINE_ENV}
-    # dbt working directory — used by BashOperator in DAGs
     PIPELINE_HOME: /opt/airflow/nashville-housing-platform
     PYTHONPATH: /opt/airflow/nashville-housing-platform
   env_file:
