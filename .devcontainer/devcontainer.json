@@ -23,8 +23,13 @@
     "SNOWFLAKE_ACCOUNT": "${localEnv:SNOWFLAKE_ACCOUNT}",
     "SNOWFLAKE_USER": "${localEnv:SNOWFLAKE_USER}",
     "SNOWFLAKE_PASSWORD": "${localEnv:SNOWFLAKE_PASSWORD}",
+    "SNOWFLAKE_ROLE": "${localEnv:SNOWFLAKE_ROLE}",
+    "SNOWFLAKE_WAREHOUSE": "${localEnv:SNOWFLAKE_WAREHOUSE}",
+    "SNOWFLAKE_DATABASE": "${localEnv:SNOWFLAKE_DATABASE}",
+    "SNOWFLAKE_SCHEMA": "${localEnv:SNOWFLAKE_SCHEMA}",
     "CENSUS_API_KEY": "${localEnv:CENSUS_API_KEY}",
-    "SLACK_WEBHOOK_URL": "${localEnv:SLACK_WEBHOOK_URL}"
+    "SLACK_WEBHOOK_URL": "${localEnv:SLACK_WEBHOOK_URL}",
+    "PIPELINE_ENV": "${localEnv:PIPELINE_ENV}"
   },
-  "forwardPorts": [8081]
+  "forwardPorts": [8080]
 }

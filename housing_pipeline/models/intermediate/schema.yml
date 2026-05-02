@@ -1,0 +1,42 @@
+# models/intermediate/schema.yml
+
+version: 2
+
+models:
+  - name: int_zip_demographics
+    description: "2023 census demographics joined to zip region mapping"
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+          - unique
+      - name: county_fips
+        tests:
+          - not_null
+      - name: nashville_region
+        tests:
+          - not_null
+      - name: poverty_rate
+        description: "Nullable for zero-population zips — monitored by assert_poverty_rate_nulls test"
+
+  - name: int_market_activity
+    description: "Redfin weekly data aggregated to monthly zip level"
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+      - name: period_month
+        tests:
+          - not_null
+
+  - name: int_crime_index
+    description: "Annual crime rate per zip normalized by population"
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+      - name: incident_year
+        tests:
+          - not_null
+      - name: incidents_per_1k
+        description: "Nullable for zero-population zip/year combos — monitored by assert_crime_rate_nulls test"
