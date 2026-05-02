@@ -259,11 +259,17 @@ def transform_parcels(df: pl.DataFrame) -> pl.DataFrame:
     # Step 2: cast to Int64 (required by Polars for from_epoch)
     # Step 3: cast to Date
     df = df.with_columns(
-        (pl.col("OwnDate") / 1000)
-        .cast(pl.Int64)
-        .cast(pl.Date)
-        .alias("OwnDate")
+        pl.from_epoch(
+            (pl.col("OwnDate") / 1000).cast(pl.Int64),
+            time_unit="s"
+        ).alias("OwnDate")
     )
+    # Drop rows where OwnDate is out of Polars' valid date range
+    before_range = df.shape[0]
+    df = df.drop_nulls(subset=["OwnDate"])
+    dropped_range = before_range - df.shape[0]
+    if dropped_range > 0:
+        logger.warning(f"[parcels] Dropped {dropped_range} rows with out-of-range OwnDate")
 
     # Cast numeric fields — ArcGIS may return these as int or null
     df = df.with_columns([
@@ -375,9 +381,9 @@ def ingest_property() -> int:
     new_watermark = df["own_date"].max().strftime("%Y-%m-%d")
 
     logger.info(
-        f"[parcels] Writing {df.shape[0]:,} rows "
-        f"(own_date range: {df['own_date'].min()} → {new_watermark})"
-    )
+            f"[parcels] Writing {df.shape[0]:,} rows "
+            f"(own_date range: {df['own_date'].min()} → {new_watermark})"
+        )
 
     _delete_date_range(fetch_from_date)
 
