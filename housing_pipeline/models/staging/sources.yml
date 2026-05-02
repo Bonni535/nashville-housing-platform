@@ -1,0 +1,105 @@
+# models/staging/sources.yml
+version: 2
+
+sources:
+  - name: raw
+    database: HOUSING_PIPELINE
+    schema: RAW
+    description: >
+      Raw ingestion layer. All tables written by Python ingestion scripts.
+      Incremental loads tracked via RAW.PIPELINE_STATE watermarks.
+
+    tables:
+      - name: zillow_metrics
+        description: >
+          Zillow ZHVI, ZORI, and ZHVF metrics at zip code level. Monthly cadence.
+          One row per zip per month per metric_type. TN-filtered in ingestion.
+        config:
+          loaded_at_field: ingested_at
+          freshness:
+            warn_after: {count: 35, period: day}
+            error_after: {count: 40, period: day}
+        columns:
+          - name: zip_code
+          - name: period_month
+          - name: value
+          - name: metric_type
+          - name: ingested_at
+
+      - name: redfin_metrics
+        description: >
+          Redfin zip-level market activity. Weekly cadence (Wednesdays).
+          Primary source for inventory, DOM, sale-to-list, and homes_sold at zip level.
+          TN-filtered in ingestion. ETag conditional fetch prevents redundant downloads.
+        config:
+          loaded_at_field: ingested_at
+          freshness:
+            warn_after: {count: 8, period: day}
+            error_after: {count: 10, period: day}
+        columns:
+          - name: zip_code
+          - name: state_code
+          - name: period_end
+          - name: median_dom
+          - name: inventory
+          - name: avg_sale_to_list
+          - name: months_of_supply
+          - name: median_sale_price
+          - name: homes_sold
+          - name: new_listings
+          - name: ingested_at
+
+      - name: census_zip
+        description: >
+          Census ACS5 demographic estimates at ZCTA level. Annual cadence.
+          Vintages 2019-2023 loaded on first run for historical depth.
+          TN ZCTAs filtered in ingestion (37000-38599 range).
+        config:
+          loaded_at_field: ingested_at
+          freshness:
+            warn_after: {count: 400, period: day}
+            error_after: {count: 400, period: day}
+        columns:
+          - name: zcta
+          - name: state_fips
+          - name: median_household_income
+          - name: poverty_count
+          - name: total_population
+          - name: vintage_year
+          - name: ingested_at
+
+      - name: census_county
+        description: >
+          Census ACS5 demographic estimates at county level for the 5 Nashville MSA
+          counties. Annual cadence. Same vintage range as census_zip (2019-2023).
+        config:
+          loaded_at_field: ingested_at
+          freshness:
+            warn_after: {count: 400, period: day}
+            error_after: {count: 400, period: day}
+        columns:
+          - name: county_fips
+          - name: county_name
+          - name: state_fips
+          - name: median_household_income
+          - name: poverty_count
+          - name: total_population
+          - name: vintage_year
+          - name: ingested_at
+
+      - name: crime_incidents
+        description: >
+          Nashville MNPD crime incidents from ArcGIS FeatureServer. Daily cadence.
+          Migrated from Socrata SODA API in 2025/2026. 30-day lookback window
+          on incremental runs to catch late-arriving records.
+          ~42% of records have null zip_code — expected, not a data quality issue.
+        config:
+          loaded_at_field: ingested_at
+          freshness:
+            warn_after: {count: 2, period: day}
+            error_after: {count: 3, period: day}
+        columns:
+          - name: incident_occurred
+          - name: incident_type
+          - name: zip_code
+          - name: ingested_at
