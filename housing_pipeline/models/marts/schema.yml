@@ -1,0 +1,39 @@
+# models/marts/schema.yml
+
+version: 2
+
+models:
+  - name: fct_monthly_zip
+    description: "Wide fact table: Redfin market activity + Zillow valuations per zip per month"
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+      - name: period_month
+        tests:
+          - not_null
+
+  - name: dim_geography
+    description: "Static dimension: one row per MSA zip with region, county, demographics"
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+          - unique
+      - name: county_fips
+        tests:
+          - not_null
+      - name: nashville_region
+        tests:
+          - not_null
+
+  - name: fct_opportunity_score
+    description: "Composite opportunity score per zip, 6-signal min-max normalized"
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+          - unique
+      - name: opportunity_score
+        tests:
+          - not_null

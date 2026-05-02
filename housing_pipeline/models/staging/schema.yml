@@ -1,0 +1,62 @@
+# models/staging/schema.yml
+
+version: 2
+
+models:
+  - name: stg_zillow
+    description: "Zillow ZHVI, ZORI, ZHVF metrics filtered to Nashville MSA"
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+      - name: period_month
+        tests:
+          - not_null
+      - name: metric_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['ZHVI', 'ZORI', 'ZHVF']
+      - name: value
+        tests:
+          - not_null
+
+  - name: stg_redfin
+    description: "Redfin weekly market metrics filtered to Nashville MSA"
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+      - name: period_end
+        tests:
+          - not_null
+
+  - name: stg_census_zip
+    description: "Census ACS5 demographics at ZCTA level, Nashville MSA"
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+      - name: vintage_year
+        tests:
+          - not_null
+
+  - name: stg_census_county
+    description: "Census ACS5 demographics at county level, 5 MSA counties"
+    columns:
+      - name: county_fips
+        tests:
+          - not_null
+      - name: vintage_year
+        tests:
+          - not_null
+
+  - name: stg_crime_incidents
+    description: "MNPD crime incidents filtered to Nashville MSA zips"
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+      - name: incident_occurred
+        tests:
+          - not_null
