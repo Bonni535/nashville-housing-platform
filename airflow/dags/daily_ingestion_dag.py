@@ -65,7 +65,7 @@ with DAG(
             notes=notes,
             freshness_census="ok",
             freshness_crime="ok",
-            freshness_parcels="ok",
+            freshness_property="ok",
         )
         notify_slack_success(
             dag_id=context["dag"].dag_id,

@@ -45,9 +45,9 @@ def write_audit_log(
     dbt_tests_passed: int = 0,
     freshness_redfin: str = None,
     freshness_zillow: str = None,
-    freshness_parcels: str = None,
-    freshness_census: str = None,
+    freshness_property: str = None,
     freshness_crime: str = None,
+    freshness_census: str = None,
 ) -> None:
     conn = snowflake.connector.connect(
         account=os.environ["SNOWFLAKE_ACCOUNT"],
@@ -64,7 +64,7 @@ def write_audit_log(
                 dag_id, run_id, status, notes,
                 dbt_tests_run, dbt_tests_passed,
                 freshness_redfin, freshness_zillow,
-                freshness_parcels, freshness_census, freshness_crime
+                freshness_property, freshness_crime, freshness_census
             ) VALUES (
                 %s, %s, %s, %s,
                 %s, %s,
@@ -74,7 +74,7 @@ def write_audit_log(
             dag_id, run_id, status, notes,
             dbt_tests_run, dbt_tests_passed,
             freshness_redfin, freshness_zillow,
-            freshness_parcels, freshness_census, freshness_crime,
+            freshness_property, freshness_crime, freshness_census,
         ))
     finally:
         conn.close()
