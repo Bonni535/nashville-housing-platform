@@ -16,7 +16,8 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: ['ZHVI', 'ZORI', 'ZHVF']
+              arguments:
+                values: ['ZHVI', 'ZORI', 'ZHVF']
       - name: value
         tests:
           - not_null
