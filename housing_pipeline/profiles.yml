@@ -1,0 +1,46 @@
+# ~/.dbt/profiles.yml
+# Copy this file to your home directory: cp profiles.yml ~/.dbt/profiles.yml
+# All sensitive values are loaded from environment variables.
+
+housing_pipeline:
+  target: dev
+  outputs:
+
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: HOUSING_PIPELINE_ROLE
+      database: HOUSING_PIPELINE
+      warehouse: HOUSING_PIPELINE_WH
+      schema: RAW
+      threads: 4
+      client_session_keep_alive: false
+      query_tag: dbt_dev
+
+    ci:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: HOUSING_PIPELINE_ROLE
+      database: HOUSING_PIPELINE
+      warehouse: HOUSING_PIPELINE_WH
+      schema: CI
+      threads: 4
+      client_session_keep_alive: false
+      query_tag: dbt_ci
+
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: HOUSING_PIPELINE_ROLE
+      database: HOUSING_PIPELINE
+      warehouse: HOUSING_PIPELINE_WH
+      schema: RAW
+      threads: 4
+      client_session_keep_alive: false
+      query_tag: dbt_prod
