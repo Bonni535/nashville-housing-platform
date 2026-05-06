@@ -40,7 +40,7 @@ from ingestion.utils import (
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 # Latest available ACS5 vintage. Update this annually when Census publishes.
-LATEST_VINTAGE = 2023
+LATEST_VINTAGE = 2024
 
 # Pull 5 vintages on first run so demographic growth score has historical data.
 ALL_VINTAGES = list(range(2019, LATEST_VINTAGE + 1))  # [2019, 2020, 2021, 2022, 2023]

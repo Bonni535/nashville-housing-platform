@@ -48,6 +48,12 @@ class Settings(BaseSettings):
         description="Free key from api.census.gov/data/signup.html",
     )
 
+    # ── FRED ──────────────────────────────────────────────────────────────
+    fred_api_key: str = Field(  
+    ...,
+    description="Free key from fred.stlouisfed.org/docs/api/api_key.html",
+    )
+
     # ── Alerting ──────────────────────────────────────────────────────────
     slack_webhook_url: str = Field(
         default="",

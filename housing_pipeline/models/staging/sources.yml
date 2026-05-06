@@ -52,7 +52,7 @@ sources:
       - name: census_zip
         description: >
           Census ACS5 demographic estimates at ZCTA level. Annual cadence.
-          Vintages 2019-2023 loaded on first run for historical depth.
+          Vintages 2019-2024 loaded for historical depth.
           TN ZCTAs filtered in ingestion (37000-38599 range).
         config:
           loaded_at_field: ingested_at
@@ -71,7 +71,7 @@ sources:
       - name: census_county
         description: >
           Census ACS5 demographic estimates at county level for the 5 Nashville MSA
-          counties. Annual cadence. Same vintage range as census_zip (2019-2023).
+          counties. Annual cadence. Same vintage range as census_zip (2019-2024).
         config:
           loaded_at_field: ingested_at
           freshness:
@@ -103,3 +103,39 @@ sources:
           - name: incident_type
           - name: zip_code
           - name: ingested_at
+
+      - name: fred_mortgage_rates
+        description: >
+          FRED MORTGAGE30US — US 30-year fixed rate mortgage weekly average.
+          Published every Thursday by the Federal Reserve Bank of St. Louis.
+          National series — not zip-level. Used for economic context in the
+          dashboard and joined to fct_monthly_zip on period_month.
+          History loaded from 2000-01-01 to align with Zillow data floor.
+        config:
+          loaded_at_field: ingested_at
+          freshness:
+            warn_after: {count: 8, period: day}
+            error_after: {count: 10, period: day}
+        columns:
+          - name: observation_date
+          - name: rate
+          - name: series_id
+          - name: ingested_at
+
+      - name: building_permits
+        description: >
+          Nashville Metro Codes building permits. Daily cadence.
+          Rolling ~3-year window maintained by Metro Codes.
+          Davidson County only — suburban zips have no rows.
+        config:
+          loaded_at_field: ingested_at
+          freshness:
+            warn_after: {count: 2, period: day}
+            error_after: {count: 3, period: day}
+        columns:
+          - name: permit_number
+          - name: permit_type
+          - name: date_issued
+          - name: zip_code
+          - name: construction_cost
+          - name: ingested_at     
