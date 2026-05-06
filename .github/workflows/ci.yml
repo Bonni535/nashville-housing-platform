@@ -37,3 +37,6 @@ jobs:
       - name: dbt test
         working-directory: housing_pipeline
         run: uv run dbt test --target ci
+      - name: dbt source freshness
+        working-directory: housing_pipeline
+        run: uv run dbt source freshness --target ci
