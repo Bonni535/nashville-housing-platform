@@ -2,6 +2,7 @@
 Nashville Housing Platform — Streamlit in Snowflake Dashboard
 TICKET-033: App scaffold
 TICKET-034: Choropleth map + weight sliders
+TICKET-035: Dashboard sections — Affordability, Inventory, Crime, Momentum, Transactions
 
 Setup:
   - Database : HOUSING_PIPELINE
@@ -17,6 +18,7 @@ get_active_session() — no explicit credentials needed.
 import json
 import os
 import tempfile
+import altair as alt
 import pydeck as pdk
 import streamlit as st
 import pandas as pd
@@ -96,12 +98,13 @@ def load_monthly_zip() -> pd.DataFrame:
             median_dom,
             median_inventory,
             median_avg_sale_to_list,
-            median_months_of_supply,
+            computed_months_of_supply,
             median_homes_sold,
             median_new_listings,
             zhvi,
             zori,
-            avg_mortgage_rate
+            avg_mortgage_rate,
+            computed_months_of_supply
         FROM HOUSING_PIPELINE.MARTS.FCT_MONTHLY_ZIP
         ORDER BY zip_code, period_month
     """).to_pandas()
@@ -134,6 +137,19 @@ def load_pipeline_audit() -> pd.DataFrame:
     return df
 
 
+
+@st.cache_data(ttl=3600)
+def load_crime_index() -> pd.DataFrame:
+    """Annual crime rate by zip from INT_CRIME_INDEX. Used by Crime section."""
+    df = session.sql("""
+        SELECT zip_code, incident_year, incident_count, incidents_per_1k
+        FROM HOUSING_PIPELINE.INTERMEDIATE.INT_CRIME_INDEX
+        ORDER BY zip_code, incident_year
+    """).to_pandas()
+    df.columns = df.columns.str.lower()
+    return df
+
+
 # ---------------------------------------------------------------------------
 # Sidebar — navigation + data load
 # ---------------------------------------------------------------------------
@@ -161,6 +177,7 @@ st.sidebar.caption(
 # Load shared datasets — cached, so subsequent page switches are instant
 scores_df = load_opportunity_scores()
 monthly_df = load_monthly_zip()
+monthly_df["period_month"] = pd.to_datetime(monthly_df["period_month"])
 
 
 # ---------------------------------------------------------------------------
@@ -393,23 +410,124 @@ if page == "🗺️ Map":
 elif page == "💰 Affordability":
     st.title("💰 Affordability")
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric(
-        "Median Sale Price (MSA)",
-        f"${scores_df['median_sale_price'].median():,.0f}",
-    )
-    col2.metric(
-        "Median Household Income (MSA)",
-        f"${scores_df['median_household_income'].median():,.0f}",
-    )
-    col3.metric(
-        "Avg Mortgage Rate (latest)",
-        f"{monthly_df['avg_mortgage_rate'].dropna().iloc[-1]:.2f}%"
-        if not monthly_df["avg_mortgage_rate"].dropna().empty else "N/A",
+    # MSA-level monthly aggregate
+    msa_monthly = (
+        monthly_df.groupby("period_month")
+        .agg(
+            zhvi=("zhvi", "median"),
+            median_sale_price=("median_sale_price", "median"),
+            avg_mortgage_rate=("avg_mortgage_rate", "first"),
+        )
+        .reset_index()
+        .sort_values("period_month")
     )
 
+    latest_zhvi  = msa_monthly["zhvi"].dropna().iloc[-1]
+    latest_rate  = monthly_df.loc[monthly_df["avg_mortgage_rate"].notna(), "avg_mortgage_rate"].iloc[-1]
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("MSA Median ZHVI",          f"${latest_zhvi:,.0f}")
+    col2.metric("MSA Median Sale Price",    f"${scores_df['median_sale_price'].median():,.0f}")
+    col3.metric("30-Yr Mortgage Rate",      f"{latest_rate:.2f}%")
+    col4.metric("Median Household Income",  f"${scores_df['median_household_income'].median():,.0f}")
+
     st.markdown("---")
-    st.info("📊 Affordability trend charts and zip selector coming in a future ticket.", icon="🚧")
+
+    # ZHVI trend — full width
+    st.subheader("Nashville MSA Home Value Index (ZHVI)")
+    zhvi_data = msa_monthly.dropna(subset=["zhvi"])
+    zhvi_chart = (
+        alt.Chart(zhvi_data)
+        .mark_line(color="#00a884", strokeWidth=2)
+        .encode(
+            x=alt.X("period_month:T", title="Month"),
+            y=alt.Y("zhvi:Q", title="Median ZHVI ($)", scale=alt.Scale(zero=False)),
+            tooltip=[
+                alt.Tooltip("period_month:T", title="Month", format="%b %Y"),
+                alt.Tooltip("zhvi:Q",         title="ZHVI",  format="$,.0f"),
+            ],
+        )
+        .properties(height=260)
+    )
+    st.altair_chart(zhvi_chart, use_container_width=True)
+
+    # Sale price by region | Mortgage rate — two columns
+    col_l, col_r = st.columns(2)
+
+    with col_l:
+        st.subheader("Median Sale Price by Region")
+        region_prices = (
+            scores_df.dropna(subset=["median_sale_price"])
+            .groupby("nashville_region")["median_sale_price"]
+            .median()
+            .reset_index()
+            .sort_values("median_sale_price", ascending=False)
+        )
+        price_bar = (
+            alt.Chart(region_prices)
+            .mark_bar(color="#00a884")
+            .encode(
+                x=alt.X("median_sale_price:Q", title="Median Sale Price ($)"),
+                y=alt.Y("nashville_region:N", sort="-x", title=None),
+                tooltip=[
+                    alt.Tooltip("nashville_region:N",  title="Region"),
+                    alt.Tooltip("median_sale_price:Q", title="Median Sale Price", format="$,.0f"),
+                ],
+            )
+            .properties(height=260)
+        )
+        st.altair_chart(price_bar, use_container_width=True)
+
+    with col_r:
+        st.subheader("30-Year Fixed Mortgage Rate")
+        rate_data = msa_monthly.dropna(subset=["avg_mortgage_rate"])
+        rate_chart = (
+            alt.Chart(rate_data)
+            .mark_line(color="#e67e22", strokeWidth=2)
+            .encode(
+                x=alt.X("period_month:T", title="Month"),
+                y=alt.Y("avg_mortgage_rate:Q", title="Rate (%)", scale=alt.Scale(zero=False)),
+                tooltip=[
+                    alt.Tooltip("period_month:T",      title="Month", format="%b %Y"),
+                    alt.Tooltip("avg_mortgage_rate:Q", title="Rate",  format=".2f"),
+                ],
+            )
+            .properties(height=260)
+        )
+        st.altair_chart(rate_chart, use_container_width=True)
+
+    # Zip drill-down
+    st.markdown("---")
+    st.subheader("Zip-Level ZHVI vs MSA Average")
+    zip_options = sorted(monthly_df["zip_code"].dropna().unique().tolist())
+    default_idx = zip_options.index("37203") if "37203" in zip_options else 0
+    selected_zip = st.selectbox("Select zip code", zip_options, index=default_idx)
+
+    msa_zhvi_df = msa_monthly[["period_month", "zhvi"]].rename(columns={"zhvi": "msa_zhvi"})
+    zip_df = (
+        monthly_df[monthly_df["zip_code"] == selected_zip][["period_month", "zhvi"]]
+        .merge(msa_zhvi_df, on="period_month", how="inner")
+        .dropna(subset=["zhvi", "msa_zhvi"])
+    )
+    if not zip_df.empty:
+        base = alt.Chart(zip_df)
+        zip_line = base.mark_line(color="#00a884", strokeWidth=2).encode(
+            x=alt.X("period_month:T", title="Month"),
+            y=alt.Y("zhvi:Q", scale=alt.Scale(zero=False), title="ZHVI ($)"),
+            tooltip=[
+                alt.Tooltip("period_month:T", title="Month", format="%b %Y"),
+                alt.Tooltip("zhvi:Q", title=f"{selected_zip} ZHVI", format="$,.0f"),
+            ],
+        )
+        msa_line = base.mark_line(color="#95a5a6", strokeWidth=1.5, strokeDash=[4, 2]).encode(
+            x="period_month:T",
+            y=alt.Y("msa_zhvi:Q", scale=alt.Scale(zero=False)),
+            tooltip=[alt.Tooltip("msa_zhvi:Q", title="MSA Median", format="$,.0f")],
+        )
+        st.altair_chart((zip_line + msa_line).properties(height=240), use_container_width=True)
+        st.caption(f"Solid teal = {selected_zip}  ·  Dashed gray = MSA median")
+    else:
+        st.info(f"No ZHVI data available for {selected_zip}.")
 
 
 # ---------------------------------------------------------------------------
@@ -418,19 +536,154 @@ elif page == "💰 Affordability":
 elif page == "📦 Inventory":
     st.title("📦 Inventory")
 
-    col1, col2 = st.columns(2)
-    latest = monthly_df.sort_values("period_month").groupby("zip_code").last().reset_index()
-    col1.metric(
-        "MSA Median Inventory (latest month)",
-        f"{latest['median_inventory'].median():,.0f}",
-    )
-    col2.metric(
-        "MSA Median Months of Supply",
-        f"{latest['median_months_of_supply'].median():.1f}",
-    )
+    latest_month = monthly_df.sort_values("period_month").groupby("zip_code").last().reset_index()
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("MSA Median Inventory",       f"{latest_month['median_inventory'].median():,.0f} homes")
+    col2.metric("Months of Supply",           f"{latest_month['computed_months_of_supply'].dropna().median():.1f} mo" if latest_month['computed_months_of_supply'].notna().any() else "N/A")
+    col3.metric("MSA Median New Listings",    f"{latest_month['median_new_listings'].median():,.0f} / mo")
 
     st.markdown("---")
-    st.info("📊 Inventory trend charts and zip selector coming in a future ticket.", icon="🚧")
+
+    # MSA aggregates over time
+    inv_monthly = (
+        monthly_df.groupby("period_month")
+        .agg(
+            median_inventory=("median_inventory",       "median"),
+            months_of_supply=("computed_months_of_supply","median"),
+            new_listings=    ("median_new_listings",    "median"),
+        )
+        .reset_index()
+        .sort_values("period_month")
+    )
+
+    col_l, col_r = st.columns(2)
+
+    with col_l:
+        st.subheader("Active Inventory — MSA Median")
+        inv_chart = (
+            alt.Chart(inv_monthly.dropna(subset=["median_inventory"]))
+            .mark_area(color="#00a884", opacity=0.35, line={"color": "#00a884", "strokeWidth": 2})
+            .encode(
+                x=alt.X("period_month:T", title="Month"),
+                y=alt.Y("median_inventory:Q", title="Median Active Listings", scale=alt.Scale(zero=True)),
+                tooltip=[
+                    alt.Tooltip("period_month:T",     title="Month",     format="%b %Y"),
+                    alt.Tooltip("median_inventory:Q", title="Inventory", format=",.0f"),
+                ],
+            )
+            .properties(height=250)
+        )
+        st.altair_chart(inv_chart, use_container_width=True)
+
+    with col_r:
+        st.subheader("Months of Supply — MSA Median")
+        mos_data = inv_monthly.dropna(subset=["months_of_supply"])
+        if not mos_data.empty:
+            mos_chart = (
+                alt.Chart(mos_data)
+                .mark_line(color="#1a3a5c", strokeWidth=2)
+                .encode(
+                    x=alt.X("period_month:T", title="Month"),
+                    y=alt.Y("months_of_supply:Q", title="Months of Supply", scale=alt.Scale(zero=False)),
+                    tooltip=[
+                        alt.Tooltip("period_month:T",     title="Month",      format="%b %Y"),
+                        alt.Tooltip("months_of_supply:Q", title="Mos Supply", format=".1f"),
+                    ],
+                )
+                .properties(height=250)
+            )
+            rule = alt.Chart(pd.DataFrame({"y": [6]})).mark_rule(
+                color="#e74c3c", strokeDash=[4, 2], strokeWidth=1.5
+            ).encode(y="y:Q")
+            st.altair_chart(mos_chart + rule, use_container_width=True)
+            st.caption("Red dashed line = 6 months (balanced market threshold)")
+        else:
+            st.info("Months of supply not reported by Redfin for Nashville MSA zip codes.")
+            st.caption("This is a Redfin data coverage limitation, not a pipeline issue.")
+
+    # New listings trend — full width
+    st.markdown("---")
+    st.subheader("New Listings — MSA Median")
+    nl_chart = (
+        alt.Chart(inv_monthly.dropna(subset=["new_listings"]))
+        .mark_bar(color="#00a884", opacity=0.7)
+        .encode(
+            x=alt.X("period_month:T", title="Month"),
+            y=alt.Y("new_listings:Q", title="Median New Listings"),
+            tooltip=[
+                alt.Tooltip("period_month:T",  title="Month",        format="%b %Y"),
+                alt.Tooltip("new_listings:Q",  title="New Listings", format=",.0f"),
+            ],
+        )
+        .properties(height=220)
+    )
+    st.altair_chart(nl_chart, use_container_width=True)
+
+    # Zip drill-down
+    st.markdown("---")
+    st.subheader("Zip-Level Inventory & Months of Supply")
+    zip_options_i = sorted(monthly_df["zip_code"].dropna().unique().tolist())
+    default_i = zip_options_i.index("37203") if "37203" in zip_options_i else 0
+    selected_zip_i = st.selectbox("Select zip code", zip_options_i, index=default_i, key="inv_zip")
+
+    zip_inv = (
+        monthly_df[monthly_df["zip_code"] == selected_zip_i]
+        [["period_month", "median_inventory", "computed_months_of_supply"]]
+        .sort_values("period_month")
+    )
+    msa_inv = inv_monthly[["period_month", "median_inventory", "months_of_supply"]].rename(
+        columns={"median_inventory": "msa_inventory", "months_of_supply": "msa_mos"}
+    )
+    zip_inv_merged = zip_inv.merge(msa_inv, on="period_month", how="inner")
+
+    col_zi, col_zm = st.columns(2)
+
+    with col_zi:
+        inv_compare = zip_inv_merged.dropna(subset=["median_inventory", "msa_inventory"])
+        if not inv_compare.empty:
+            base_i = alt.Chart(inv_compare)
+            zip_inv_line = base_i.mark_line(color="#00a884", strokeWidth=2).encode(
+                x=alt.X("period_month:T", title="Month"),
+                y=alt.Y("median_inventory:Q", title="Active Listings", scale=alt.Scale(zero=False)),
+                tooltip=[
+                    alt.Tooltip("period_month:T",      title="Month",    format="%b %Y"),
+                    alt.Tooltip("median_inventory:Q",  title=f"{selected_zip_i}", format=",.0f"),
+                ],
+            )
+            msa_inv_line = base_i.mark_line(color="#95a5a6", strokeWidth=1.5, strokeDash=[4, 2]).encode(
+                x="period_month:T",
+                y=alt.Y("msa_inventory:Q", scale=alt.Scale(zero=False)),
+                tooltip=[alt.Tooltip("msa_inventory:Q", title="MSA Median", format=",.0f")],
+            )
+            st.altair_chart((zip_inv_line + msa_inv_line).properties(height=220), use_container_width=True)
+            st.caption(f"Solid teal = {selected_zip_i}  ·  Dashed gray = MSA median")
+
+    with col_zm:
+        mos_compare = zip_inv_merged.dropna(subset=["computed_months_of_supply", "msa_mos"])
+        if not mos_compare.empty:
+            base_m = alt.Chart(mos_compare)
+            zip_mos_line = base_m.mark_line(color="#1a3a5c", strokeWidth=2).encode(
+                x=alt.X("period_month:T", title="Month"),
+                y=alt.Y("computed_months_of_supply:Q", title="Months of Supply", scale=alt.Scale(zero=False)),
+                tooltip=[
+                    alt.Tooltip("period_month:T",              title="Month", format="%b %Y"),
+                    alt.Tooltip("computed_months_of_supply:Q",   title=f"{selected_zip_i} MoS", format=".1f"),
+                ],
+            )
+            msa_mos_line = base_m.mark_line(color="#95a5a6", strokeWidth=1.5, strokeDash=[4, 2]).encode(
+                x="period_month:T",
+                y=alt.Y("msa_mos:Q", scale=alt.Scale(zero=False)),
+                tooltip=[alt.Tooltip("msa_mos:Q", title="MSA Median MoS", format=".1f")],
+            )
+            rule_i = alt.Chart(pd.DataFrame({"y": [6]})).mark_rule(
+                color="#e74c3c", strokeDash=[4, 2], strokeWidth=1.5
+            ).encode(y="y:Q")
+            st.altair_chart(
+                (zip_mos_line + msa_mos_line + rule_i).properties(height=220),
+                use_container_width=True,
+            )
+            st.caption(f"Solid navy = {selected_zip_i}  ·  Dashed gray = MSA  ·  Red = 6 mo threshold")
 
 
 # ---------------------------------------------------------------------------
@@ -439,24 +692,100 @@ elif page == "📦 Inventory":
 elif page == "🚨 Crime":
     st.title("🚨 Crime & Safety")
 
-    col1, col2 = st.columns(2)
-    col1.metric(
-        "MSA Median Crime Rate (per 1k residents)",
-        f"{scores_df['incidents_per_1k'].median():.1f}",
-    )
-    col2.metric(
-        "Zips with Full Crime Data",
-        f"{(scores_df['incidents_per_1k'].notna()).sum()} / {len(scores_df)}",
-    )
+    davidson_crime  = scores_df[scores_df["incidents_per_1k"].notna()]
+    msa_median_rate = davidson_crime["incidents_per_1k"].median()
+    safest_zip      = davidson_crime.loc[davidson_crime["incidents_per_1k"].idxmin(), "zip_code"]
+    highest_zip     = davidson_crime.loc[davidson_crime["incidents_per_1k"].idxmax(), "zip_code"]
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Davidson Median Crime Rate", f"{msa_median_rate:.1f} per 1k")
+    col2.metric("Safest Zip",                 safest_zip)
+    col3.metric("Highest Crime Zip",          highest_zip)
 
     st.caption(
-        "⚠️ MNPD jurisdiction covers Davidson County only. "
-        "23 suburban zips (Williamson, Rutherford, Wilson, Sumner) "
-        "are imputed with the MSA average in the opportunity score."
+        "⚠️ MNPD jurisdiction covers Davidson County only (53 zips). "
+        "23 suburban zips are imputed with the MSA average in the opportunity score."
     )
-
     st.markdown("---")
-    st.info("📊 Crime breakdown by zip and region coming in a future ticket.", icon="🚧")
+
+    crime_df = load_crime_index()
+
+    col_l, col_r = st.columns(2)
+
+    with col_l:
+        st.subheader("Crime Rate by Zip — Current Year")
+        rate_by_zip = (
+            davidson_crime[["zip_code", "nashville_region", "incidents_per_1k"]]
+            .sort_values("incidents_per_1k", ascending=False)
+            .head(30)
+        )
+        zip_bar = (
+            alt.Chart(rate_by_zip)
+            .mark_bar()
+            .encode(
+                x=alt.X("incidents_per_1k:Q", title="Incidents per 1k Residents"),
+                y=alt.Y("zip_code:N", sort="-x", title=None),
+                color=alt.Color(
+                    "incidents_per_1k:Q",
+                    scale=alt.Scale(scheme="reds"),
+                    legend=None,
+                ),
+                tooltip=[
+                    alt.Tooltip("zip_code:N",        title="Zip"),
+                    alt.Tooltip("nashville_region:N", title="Region"),
+                    alt.Tooltip("incidents_per_1k:Q", title="Rate", format=".1f"),
+                ],
+            )
+            .properties(height=500)
+        )
+        st.altair_chart(zip_bar, use_container_width=True)
+
+    with col_r:
+        st.subheader("MSA Crime Rate Trend (2019–2026)")
+        trend = (
+            crime_df.groupby("incident_year")["incidents_per_1k"]
+            .median()
+            .reset_index()
+            .rename(columns={"incidents_per_1k": "msa_median"})
+        )
+        trend_chart = (
+            alt.Chart(trend)
+            .mark_line(color="#e74c3c", strokeWidth=2, point=True)
+            .encode(
+                x=alt.X("incident_year:O", title="Year"),
+                y=alt.Y("msa_median:Q", title="Median Crime Rate (per 1k)", scale=alt.Scale(zero=False)),
+                tooltip=[
+                    alt.Tooltip("incident_year:O", title="Year"),
+                    alt.Tooltip("msa_median:Q",    title="Median Rate", format=".1f"),
+                ],
+            )
+            .properties(height=260)
+        )
+        st.altair_chart(trend_chart, use_container_width=True)
+
+        # Regional breakdown
+        st.subheader("Crime Rate by Region")
+        region_crime = (
+            davidson_crime.dropna(subset=["incidents_per_1k"])
+            .groupby("nashville_region")["incidents_per_1k"]
+            .median()
+            .reset_index()
+            .sort_values("incidents_per_1k", ascending=False)
+        )
+        reg_bar = (
+            alt.Chart(region_crime)
+            .mark_bar(color="#e74c3c")
+            .encode(
+                x=alt.X("incidents_per_1k:Q", title="Median Rate (per 1k)"),
+                y=alt.Y("nashville_region:N", sort="-x", title=None),
+                tooltip=[
+                    alt.Tooltip("nashville_region:N",  title="Region"),
+                    alt.Tooltip("incidents_per_1k:Q",  title="Median Rate", format=".1f"),
+                ],
+            )
+            .properties(height=220)
+        )
+        st.altair_chart(reg_bar, use_container_width=True)
 
 
 # ---------------------------------------------------------------------------
@@ -465,20 +794,102 @@ elif page == "🚨 Crime":
 elif page == "📈 Momentum":
     st.title("📈 Market Momentum")
 
-    col1, col2 = st.columns(2)
-    latest = monthly_df.sort_values("period_month").groupby("zip_code").last().reset_index()
-    col1.metric(
-        "MSA Median Days on Market",
-        f"{scores_df['median_dom'].median():.0f} days",
-    )
-    col2.metric(
-        "MSA Avg Sale-to-List Ratio",
-        f"{latest['median_avg_sale_to_list'].median():.1%}"
-        if not latest["median_avg_sale_to_list"].dropna().empty else "N/A",
-    )
+    latest_month = monthly_df.sort_values("period_month").groupby("zip_code").last().reset_index()
+    msa_dom       = latest_month["median_dom"].median()
+    msa_stl       = latest_month["median_avg_sale_to_list"].median()
+    msa_sal_price = latest_month["median_sale_price"].median()
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("MSA Median Days on Market",  f"{msa_dom:.0f} days")
+    col2.metric("MSA Sale-to-List Ratio",     f"{msa_stl:.1%}" if pd.notna(msa_stl) else "N/A")
+    col3.metric("MSA Median Sale Price",      f"${msa_sal_price:,.0f}")
 
     st.markdown("---")
-    st.info("📊 DOM and sale-to-list trend charts coming in a future ticket.", icon="🚧")
+
+    mom_monthly = (
+        monthly_df.groupby("period_month")
+        .agg(
+            median_dom=           ("median_dom",            "median"),
+            median_avg_sale_to_list=("median_avg_sale_to_list","median"),
+        )
+        .reset_index()
+        .sort_values("period_month")
+    )
+
+    col_l, col_r = st.columns(2)
+
+    with col_l:
+        st.subheader("Median Days on Market — MSA")
+        dom_chart = (
+            alt.Chart(mom_monthly.dropna(subset=["median_dom"]))
+            .mark_line(color="#1a3a5c", strokeWidth=2)
+            .encode(
+                x=alt.X("period_month:T", title="Month"),
+                y=alt.Y("median_dom:Q", title="Median DOM", scale=alt.Scale(zero=False)),
+                tooltip=[
+                    alt.Tooltip("period_month:T",  title="Month", format="%b %Y"),
+                    alt.Tooltip("median_dom:Q",    title="DOM",   format=".0f"),
+                ],
+            )
+            .properties(height=260)
+        )
+        st.altair_chart(dom_chart, use_container_width=True)
+
+    with col_r:
+        st.subheader("Sale-to-List Ratio — MSA")
+        stl_chart = (
+            alt.Chart(mom_monthly.dropna(subset=["median_avg_sale_to_list"]))
+            .mark_line(color="#00a884", strokeWidth=2)
+            .encode(
+                x=alt.X("period_month:T", title="Month"),
+                y=alt.Y("median_avg_sale_to_list:Q", title="Sale-to-List Ratio",
+                        axis=alt.Axis(format=".0%"), scale=alt.Scale(zero=False)),
+                tooltip=[
+                    alt.Tooltip("period_month:T",             title="Month",  format="%b %Y"),
+                    alt.Tooltip("median_avg_sale_to_list:Q",  title="Ratio",  format=".1%"),
+                ],
+            )
+            .properties(height=260)
+        )
+        # Reference line at 100%
+        rule = alt.Chart(pd.DataFrame({"y": [1.0]})).mark_rule(
+            color="#e74c3c", strokeDash=[4, 2], strokeWidth=1.5
+        ).encode(y="y:Q")
+        st.altair_chart(stl_chart + rule, use_container_width=True)
+        st.caption("Red dashed line = 100% (list price)")
+
+    # Zip drill-down
+    st.markdown("---")
+    st.subheader("Zip-Level Days on Market")
+    zip_options_m = sorted(monthly_df["zip_code"].dropna().unique().tolist())
+    default_m = zip_options_m.index("37203") if "37203" in zip_options_m else 0
+    selected_zip_m = st.selectbox("Select zip code", zip_options_m, index=default_m, key="mom_zip")
+
+    msa_dom_df = mom_monthly[["period_month", "median_dom"]].rename(columns={"median_dom": "msa_dom"})
+    zip_dom_df = (
+        monthly_df[monthly_df["zip_code"] == selected_zip_m][["period_month", "median_dom"]]
+        .merge(msa_dom_df, on="period_month", how="inner")
+        .dropna(subset=["median_dom", "msa_dom"])
+    )
+    if not zip_dom_df.empty:
+        base_m = alt.Chart(zip_dom_df)
+        zip_dom = base_m.mark_line(color="#1a3a5c", strokeWidth=2).encode(
+            x=alt.X("period_month:T", title="Month"),
+            y=alt.Y("median_dom:Q", title="Median DOM", scale=alt.Scale(zero=False)),
+            tooltip=[
+                alt.Tooltip("period_month:T", title="Month", format="%b %Y"),
+                alt.Tooltip("median_dom:Q",   title=f"{selected_zip_m} DOM", format=".0f"),
+            ],
+        )
+        msa_dom_line = base_m.mark_line(color="#95a5a6", strokeWidth=1.5, strokeDash=[4, 2]).encode(
+            x="period_month:T",
+            y=alt.Y("msa_dom:Q", scale=alt.Scale(zero=False)),
+            tooltip=[alt.Tooltip("msa_dom:Q", title="MSA Median DOM", format=".0f")],
+        )
+        st.altair_chart((zip_dom + msa_dom_line).properties(height=240), use_container_width=True)
+        st.caption(f"Solid navy = {selected_zip_m}  ·  Dashed gray = MSA median")
+    else:
+        st.info(f"No DOM data available for {selected_zip_m}.")
 
 
 # ---------------------------------------------------------------------------
@@ -487,27 +898,100 @@ elif page == "📈 Momentum":
 elif page == "🏠 Transactions":
     st.title("🏠 Transactions & Permits")
 
+    top_permit_zip = scores_df.loc[scores_df["permit_count"].idxmax(), "zip_code"] if scores_df["permit_count"].notna().any() else "N/A"
+
     col1, col2, col3 = st.columns(3)
-    col1.metric(
-        "MSA Median Homes Sold / Month",
-        f"{scores_df['median_homes_sold'].median():.0f}",
-    )
-    col2.metric(
-        "MSA Median Permit Count (current window)",
-        f"{scores_df['permit_count'].median():.0f}",
-    )
-    col3.metric(
-        "Zips with Permit Data",
-        f"{(scores_df['permit_count'].notna() & (scores_df['permit_count'] > 0)).sum()} / {len(scores_df)}",
-    )
+    col1.metric("MSA Median Homes Sold / Month",   f"{scores_df['median_homes_sold'].median():.0f}")
+    col2.metric("MSA Median Permit Count",          f"{scores_df['permit_count'].median():.0f}")
+    col3.metric("Top Permit Zip",                   top_permit_zip)
 
     st.caption(
         "⚠️ Metro Codes covers Davidson County only. "
-        "Suburban zips are imputed with the MSA average permit count."
+        "23 suburban zips are imputed with the MSA average permit count."
+    )
+    st.markdown("---")
+
+    # Homes sold trend
+    trans_monthly = (
+        monthly_df.groupby("period_month")
+        .agg(median_homes_sold=("median_homes_sold", "median"))
+        .reset_index()
+        .sort_values("period_month")
     )
 
-    st.markdown("---")
-    st.info("📊 Transactions and permit breakdown by zip coming in a future ticket.", icon="🚧")
+    col_l, col_r = st.columns(2)
+
+    with col_l:
+        st.subheader("Homes Sold — MSA Median")
+        sold_chart = (
+            alt.Chart(trans_monthly.dropna(subset=["median_homes_sold"]))
+            .mark_area(color="#1a3a5c", opacity=0.3, line={"color": "#1a3a5c", "strokeWidth": 2})
+            .encode(
+                x=alt.X("period_month:T", title="Month"),
+                y=alt.Y("median_homes_sold:Q", title="Median Homes Sold", scale=alt.Scale(zero=True)),
+                tooltip=[
+                    alt.Tooltip("period_month:T",      title="Month",       format="%b %Y"),
+                    alt.Tooltip("median_homes_sold:Q", title="Homes Sold",  format=",.0f"),
+                ],
+            )
+            .properties(height=280)
+        )
+        st.altair_chart(sold_chart, use_container_width=True)
+
+        # Zip drill-down
+        st.subheader("Zip-Level Homes Sold")
+        zip_options_t = sorted(monthly_df["zip_code"].dropna().unique().tolist())
+        default_t = zip_options_t.index("37203") if "37203" in zip_options_t else 0
+        selected_zip_t = st.selectbox("Select zip code", zip_options_t, index=default_t, key="trans_zip")
+        zip_sold = (
+            monthly_df[monthly_df["zip_code"] == selected_zip_t]
+            [["period_month", "median_homes_sold"]]
+            .sort_values("period_month")
+            .dropna(subset=["median_homes_sold"])
+        )
+        if not zip_sold.empty:
+            zip_sold_chart = (
+                alt.Chart(zip_sold)
+                .mark_bar(color="#1a3a5c", opacity=0.8)
+                .encode(
+                    x=alt.X("period_month:T", title="Month"),
+                    y=alt.Y("median_homes_sold:Q", title="Homes Sold"),
+                    tooltip=[
+                        alt.Tooltip("period_month:T",      title="Month",      format="%b %Y"),
+                        alt.Tooltip("median_homes_sold:Q", title="Homes Sold", format=",.0f"),
+                    ],
+                )
+                .properties(height=220)
+            )
+            st.altair_chart(zip_sold_chart, use_container_width=True)
+        else:
+            st.info(f"No homes sold data for {selected_zip_t}.")
+
+    with col_r:
+        st.subheader("Building Permits by Zip (Top 20)")
+        permit_by_zip = (
+            scores_df.dropna(subset=["permit_count"])
+            .query("permit_count > 0")
+            [["zip_code", "nashville_region", "permit_count"]]
+            .sort_values("permit_count", ascending=False)
+            .head(20)
+        )
+        permit_bar = (
+            alt.Chart(permit_by_zip)
+            .mark_bar(color="#00a884")
+            .encode(
+                x=alt.X("permit_count:Q", title="Permit Count (~3 yr window)"),
+                y=alt.Y("zip_code:N", sort="-x", title=None),
+                tooltip=[
+                    alt.Tooltip("zip_code:N",        title="Zip"),
+                    alt.Tooltip("nashville_region:N", title="Region"),
+                    alt.Tooltip("permit_count:Q",     title="Permits", format=",.0f"),
+                ],
+            )
+            .properties(height=520)
+        )
+        st.altair_chart(permit_bar, use_container_width=True)
+        st.caption("Metro Codes rolling ~3-year window · Davidson County only")
 
 
 # ---------------------------------------------------------------------------

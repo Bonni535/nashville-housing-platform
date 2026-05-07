@@ -93,6 +93,7 @@ select
     median_sale_price,
     median_homes_sold,
     median_new_listings,
+    median_inventory / NULLIF(median_homes_sold, 0) AS computed_months_of_supply,
     week_count,
     zhvi,
     zori,
