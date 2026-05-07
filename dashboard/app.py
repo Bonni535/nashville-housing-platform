@@ -1,6 +1,7 @@
 """
 Nashville Housing Platform — Streamlit in Snowflake Dashboard
 TICKET-033: App scaffold
+TICKET-034: Choropleth map + weight sliders
 
 Setup:
   - Database : HOUSING_PIPELINE
@@ -13,6 +14,10 @@ Run from within Streamlit in Snowflake. All Snowflake access uses
 get_active_session() — no explicit credentials needed.
 """
 
+import json
+import os
+import tempfile
+import pydeck as pdk
 import streamlit as st
 import pandas as pd
 from snowflake.snowpark.context import get_active_session
@@ -194,6 +199,29 @@ def recompute_opportunity_score(row: pd.Series, weights: dict) -> float:
     return round(weighted_sum / total_weight, 2)
 
 
+
+# ---------------------------------------------------------------------------
+# GeoJSON loader — ZCTA boundaries from Snowflake internal stage
+# Boundaries are static so ttl=None (cache for lifetime of the app session).
+# File uploaded once via scripts/fetch_nashville_geojson.py.
+# ---------------------------------------------------------------------------
+@st.cache_data(ttl=None)
+def load_zip_geojson() -> dict:
+    """
+    Loads Nashville MSA ZCTA boundary GeoJSON from the Snowflake internal
+    stage. No external network call at runtime — file was uploaded once by
+    scripts/fetch_nashville_geojson.py.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        session.file.get(
+            "@HOUSING_PIPELINE.PUBLIC.DASHBOARD_ASSETS/nashville_zips.geojson",
+            tmpdir,
+        )
+        filepath = os.path.join(tmpdir, "nashville_zips.geojson")
+        with open(filepath) as f:
+            return json.load(f)
+
+
 # ---------------------------------------------------------------------------
 # Confidence badge helper
 # ---------------------------------------------------------------------------
@@ -208,34 +236,155 @@ def confidence_badge(level: str) -> str:
     return f"{CONFIDENCE_COLOR.get(level, '⚪')} {level}"
 
 
+
+# ---------------------------------------------------------------------------
+# Color scale: score 0–100 → [R, G, B, A]
+# Low (0)  = red  [214, 39,  40]
+# High (100) = teal [0,  168, 132]
+# ---------------------------------------------------------------------------
+def score_to_color(score: float, alpha: int = 190) -> list:
+    t = max(0.0, min(100.0, float(score) if score == score else 50.0)) / 100.0
+    return [
+        int(214 * (1 - t)),
+        int(39  * (1 - t) + 168 * t),
+        int(40  * (1 - t) + 132 * t),
+        alpha,
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Section: Map
 # Built in TICKET-034 — pydeck choropleth + weight sliders
 # ---------------------------------------------------------------------------
 if page == "🗺️ Map":
     st.title("🗺️ Opportunity Score Map")
-    st.info(
-        "Interactive choropleth map coming in **TICKET-034**. "
-        "It will show zip-level opportunity scores with 7 weight sliders "
-        "in the sidebar so you can reweight the signals in real time.",
-        icon="🚧",
+
+    # --- Weight sliders (only shown on Map page) ---
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### ⚖️ Signal Weights")
+    weights = {
+        "affordability": st.sidebar.slider("💵 Affordability",      0, 10, 5),
+        "market_speed":  st.sidebar.slider("⚡ Market Speed (DOM)", 0, 10, 5),
+        "activity":      st.sidebar.slider("📊 Activity",            0, 10, 5),
+        "income":        st.sidebar.slider("💰 Income",              0, 10, 5),
+        "poverty":       st.sidebar.slider("📉 Low Poverty",         0, 10, 5),
+        "safety":        st.sidebar.slider("🛡️ Safety",              0, 10, 5),
+        "permits":       st.sidebar.slider("🏗️ Permits",             0, 10, 5),
+    }
+
+    # --- Recompute scores from sliders (no Snowflake round-trip) ---
+    map_df = scores_df.copy()
+    map_df["display_score"] = map_df.apply(
+        lambda row: recompute_opportunity_score(row, weights), axis=1
+    )
+    map_df = map_df.sort_values("display_score", ascending=False)
+
+    # --- Summary metrics ---
+    top_zip = map_df.iloc[0]
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("🏆 Top Zip", top_zip["zip_code"])
+    col2.metric("Top Score", f"{top_zip['display_score']:.1f}")
+    col3.metric("MSA Average", f"{map_df['display_score'].mean():.1f}")
+    col4.metric(
+        "Score Range",
+        f"{map_df['display_score'].min():.1f} – {map_df['display_score'].max():.1f}",
     )
 
-    # Scorecard table as a useful interim deliverable while map is built
+    # --- Choropleth map ---
+    try:
+        geojson = load_zip_geojson()
+
+        # Build lookup: zip → score + metadata
+        score_lookup = map_df.set_index("zip_code")[
+            ["display_score", "nashville_region", "data_confidence",
+             "median_sale_price", "median_household_income"]
+        ].to_dict("index")
+
+        # Merge scores into GeoJSON feature properties
+        for feature in geojson["features"]:
+            zcta = feature["properties"].get("ZCTA5", "")
+            info = score_lookup.get(zcta, {})
+            score = info.get("display_score", 50.0)
+            feature["properties"]["display_score"]           = round(score, 1)
+            feature["properties"]["nashville_region"]        = info.get("nashville_region", "—")
+            feature["properties"]["data_confidence"]         = info.get("data_confidence", "—")
+            feature["properties"]["median_sale_price"]       = (
+                f"${info['median_sale_price']:,.0f}"
+                if info.get("median_sale_price") else "N/A"
+            )
+            feature["properties"]["median_household_income"] = (
+                f"${info['median_household_income']:,.0f}"
+                if info.get("median_household_income") else "N/A"
+            )
+            feature["properties"]["fill_color"] = score_to_color(score)
+
+        layer = pdk.Layer(
+            "GeoJsonLayer",
+            data=geojson,
+            pickable=True,
+            stroked=True,
+            filled=True,
+            get_fill_color="properties.fill_color",
+            get_line_color=[255, 255, 255, 60],
+            line_width_min_pixels=1,
+        )
+
+        view_state = pdk.ViewState(
+            latitude=36.17,
+            longitude=-86.78,
+            zoom=9,
+            pitch=0,
+        )
+
+        tooltip = {
+            "html": (
+                "<b>{ZCTA5}</b> · {nashville_region}<br/>"
+                "Score: <b>{display_score}</b> · {data_confidence}<br/>"
+                "Median Sale Price: {median_sale_price}<br/>"
+                "Median Income: {median_household_income}"
+            ),
+            "style": {
+                "backgroundColor": "#0d1b2a",
+                "color": "#e0f2f1",
+                "fontSize": "13px",
+                "padding": "8px",
+                "borderRadius": "4px",
+            },
+        }
+
+        st.pydeck_chart(
+            pdk.Deck(
+                layers=[layer],
+                initial_view_state=view_state,
+                tooltip=tooltip,
+                map_style="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+            ),
+            use_container_width=True,
+        )
+
+        # Color scale legend
+        st.caption("🔴 Lower opportunity → 🟢 Higher opportunity (teal)")
+
+    except Exception as e:
+        st.error(f"Could not load map boundaries: {e}")
+        st.info(
+            "TIGERweb may be unreachable from this Snowflake environment. "
+            "The scorecard table below shows the same data.",
+            icon="ℹ️",
+        )
+
+    # Scorecard table — always shown beneath the map
+    st.markdown("---")
     st.subheader("Opportunity Scores — All 76 Zips")
     display_cols = [
         "zip_code", "nashville_region", "county_name",
-        "opportunity_score", "data_confidence",
+        "display_score", "data_confidence",
         "median_sale_price", "median_household_income",
         "incidents_per_1k", "permit_count",
     ]
-    display_df = scores_df[display_cols].copy()
+    display_df = map_df[display_cols].copy()
     display_df["data_confidence"] = display_df["data_confidence"].map(confidence_badge)
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 # ---------------------------------------------------------------------------

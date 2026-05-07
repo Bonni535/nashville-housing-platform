@@ -11,6 +11,8 @@ from dag_utils import notify_slack_failure, notify_slack_success, write_audit_lo
 
 from ingestion.sources.census import ingest_census
 from ingestion.sources.crime import ingest_crime
+from ingestion.sources.fred import ingest_fred
+from ingestion.sources.permits import ingest_permits
 from ingestion.sources.property import ingest_property
 
 PIPELINE_HOME = os.environ.get(
@@ -27,7 +29,7 @@ default_args = {
 
 with DAG(
     dag_id="daily_ingestion_dag",
-    description="Daily ingestion: Census, Crime, Parcels + full dbt run",
+    description="Daily ingestion: Census, Crime, Parcels, Permits, FRED + full dbt run",
     schedule_interval="0 6 * * *",
     start_date=datetime(2026, 5, 1),
     catchup=False,
@@ -48,15 +50,27 @@ with DAG(
         rows = ingest_property()
         context["ti"].xcom_push(key="parcels_rows", value=rows)
 
+    def run_permits(**context):
+        rows = ingest_permits()
+        context["ti"].xcom_push(key="permits_rows", value=rows)
+
+    def run_fred(**context):
+        rows = ingest_fred()
+        context["ti"].xcom_push(key="fred_rows", value=rows)
+
     def run_audit_log(**context):
         ti = context["ti"]
-        census_rows = ti.xcom_pull(key="census_rows", task_ids="ingest_census") or 0
-        crime_rows = ti.xcom_pull(key="crime_rows", task_ids="ingest_crime") or 0
+        census_rows  = ti.xcom_pull(key="census_rows",  task_ids="ingest_census")  or 0
+        crime_rows   = ti.xcom_pull(key="crime_rows",   task_ids="ingest_crime")   or 0
         parcels_rows = ti.xcom_pull(key="parcels_rows", task_ids="ingest_parcels") or 0
+        permits_rows = ti.xcom_pull(key="permits_rows", task_ids="ingest_permits") or 0
+        fred_rows    = ti.xcom_pull(key="fred_rows",    task_ids="ingest_fred")    or 0
         notes = (
             f"census={census_rows} rows, "
             f"crime={crime_rows} rows, "
-            f"parcels={parcels_rows} rows"
+            f"parcels={parcels_rows} rows, "
+            f"permits={permits_rows} rows, "
+            f"fred={fred_rows} rows (0 means already up to date)"
         )
         write_audit_log(
             dag_id=context["dag"].dag_id,
@@ -88,6 +102,16 @@ with DAG(
         python_callable=run_parcels,
     )
 
+    ingest_permits_task = PythonOperator(
+        task_id="ingest_permits",
+        python_callable=run_permits,
+    )
+
+    ingest_fred_task = PythonOperator(
+        task_id="ingest_fred",
+        python_callable=run_fred,
+    )
+
     run_dbt = BashOperator(
         task_id="run_dbt",
         bash_command=f"cd {DBT_DIR} && uv run dbt run",
@@ -98,4 +122,10 @@ with DAG(
         python_callable=run_audit_log,
     )
 
-    [ingest_census_task, ingest_crime_task, ingest_parcels_task] >> run_dbt >> write_audit
+    [
+        ingest_census_task,
+        ingest_crime_task,
+        ingest_parcels_task,
+        ingest_permits_task,
+        ingest_fred_task,
+    ] >> run_dbt >> write_audit
