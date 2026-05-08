@@ -16,8 +16,7 @@ models:
         tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: ['ZHVI', 'ZORI', 'ZHVF']
+              values: ['ZHVI', 'ZORI', 'ZHVF']
       - name: value
         tests:
           - not_null
@@ -59,5 +58,35 @@ models:
         tests:
           - not_null
       - name: incident_occurred
+        tests:
+          - not_null
+
+  - name: stg_fred_mortgage_rates
+    description: "FRED 30-year fixed mortgage rate (MORTGAGE30US), weekly, 2000–2026"
+    columns:
+      - name: observation_date
+        tests:
+          - not_null
+          - unique
+      - name: rate
+        tests:
+          - not_null
+      - name: series_id
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['MORTGAGE30US']
+
+  - name: stg_building_permits
+    description: "Nashville Metro Codes building permits filtered to MSA zips. Davidson County only — suburban zips have no rows by design."
+    columns:
+      - name: permit_number
+        tests:
+          - not_null
+          - unique
+      - name: date_issued
+        tests:
+          - not_null
+      - name: zip_code
         tests:
           - not_null
