@@ -21,8 +21,9 @@ It computes a composite **Opportunity Score** (0–100) for each of 76 Nashville
 | Data warehouse | Snowflake (XS warehouse) |
 | Transformation | dbt-snowflake 1.11.4 |
 | Orchestration | Apache Airflow 2.9.1 (LocalExecutor, Docker Compose) |
-| CI/CD | GitHub Actions (ruff + dbt test on every PR) |
+| CI/CD | GitHub Actions (ruff + dbt compile + dbt test on every PR) |
 | Dashboard | Streamlit in Snowflake (pydeck, Altair) |
+| Testing | pytest (106 ingestion unit tests) |
 
 ---
 
@@ -65,7 +66,7 @@ External APIs
         Pipeline Health
 
 Apache Airflow (Docker Compose, LocalExecutor)
-    ├── daily_ingestion_dag  (6am daily)
+    ├── daily_ingestion_dag  (6am daily)   — ingest + dbt run + dbt test
     ├── redfin_dag           (3am Wednesday)
     └── zillow_dag           (4am 1st of month)
 
@@ -105,7 +106,8 @@ nashville-housing-platform/
 │       ├── census.py          — ACS5 ZIP + county ingestion
 │       ├── fred.py            — FRED MORTGAGE30US ingestion
 │       ├── permits.py         — Nashville building permits (ArcGIS)
-│       └── crime.py           — MNPD crime incidents (ArcGIS)
+│       ├── crime.py           — MNPD crime incidents (ArcGIS)
+│       └── property.py        — Nashville Parcels property sales (ArcGIS)
 │
 ├── housing_pipeline/          — dbt project root
 │   ├── dbt_project.yml
@@ -129,6 +131,19 @@ nashville-housing-platform/
 ├── dashboard/
 │   ├── app.py                 — Streamlit in Snowflake dashboard
 │   └── nashville_zips.geojson — Static ZCTA boundaries (5.5MB)
+│
+├── tests/
+│   └── ingestion/             — 106 unit tests for all ingestion modules
+│       ├── conftest.py
+│       ├── test_config.py
+│       ├── test_utils.py
+│       ├── test_fred.py
+│       ├── test_permits.py
+│       ├── test_census.py
+│       ├── test_crime.py
+│       ├── test_redfin.py
+│       ├── test_zillow.py
+│       └── test_property.py
 │
 ├── scripts/
 │   ├── build_seed_files.py    — Generates nashville_valid_zips.csv from Census crosswalk
@@ -188,7 +203,7 @@ cd housing_pipeline
 uv run --env-file ../.env dbt debug    # verify connection
 uv run --env-file ../.env dbt seed     # load seed files
 uv run --env-file ../.env dbt run      # build all models
-uv run --env-file ../.env dbt test     # run all 37+ tests
+uv run --env-file ../.env dbt test     # run all 54 tests
 ```
 
 All dbt commands must be run from inside `housing_pipeline/`. Running from repo root gives "dbt_project.yml not found".
@@ -222,6 +237,14 @@ uv run --env-file ../.env dbt run --select fct_opportunity_score+
 # CI target (writes to HOUSING_PIPELINE.CI schema)
 uv run --env-file ../.env dbt run --target ci
 ```
+
+### Unit Tests
+
+```bash
+uv run pytest tests/ingestion/ -v
+```
+
+Runs 106 unit tests covering all ingestion modules — config validation, watermark logic, transform functions, and HTTP client behavior. No Snowflake connection or API keys required; all external calls are mocked.
 
 ### Airflow (from airflow/)
 
@@ -271,7 +294,7 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every PR to `main`:
 
 1. `ruff check .` — linting
 2. `dbt compile --target ci` — SQL syntax check
-3. `dbt test --target ci` — all data tests against `HOUSING_PIPELINE.CI` schema
+3. `dbt test --target ci` — all 54 data tests against `HOUSING_PIPELINE.CI` schema
 4. `dbt source freshness --target ci` — source recency checks
 
 Branch protection on `main` requires both `lint` and `dbt-ci` to pass before merge.
@@ -294,7 +317,7 @@ The opportunity score is a min-max normalized composite of 7 signals, equal-weig
 | Safety | MNPD `incidents_per_1k` | Inverted |
 | Permits | Metro Codes `permit_count` | Direct |
 
-**Score range:** ~40–82 across 76 Nashville MSA zip codes
+**Score range:** ~40–82 across 76 Nashville MSA zip codes  
 **Data confidence:** High (52 zips) · Partial (19 zips) · Low (5 zips)
 
 Suburban zips with no MNPD or Metro Codes data are imputed with the MSA average for those signals rather than excluded.
@@ -308,8 +331,10 @@ Suburban zips with no MNPD or Metro Codes data are imputed with the MSA average 
 - **Metro Codes permits** — Davidson County only, same 23 zips imputed. Rolling ~3-year window only.
 - **Crime history starts 2019** — Nashville's ArcGIS migration from Socrata did not carry pre-2019 data.
 - **Williamson County crime** — No public queryable FeatureServer API available.
-- **Nashville Parcels** — Public ArcGIS endpoint returns only 3 arm's-length sale records. Full transaction history requires authenticated access to Davidson County Assessor database. Transaction signals sourced from Redfin instead.
+- **Nashville Parcels** — Public ArcGIS endpoint returns only ~3 arm's-length sale records. Full transaction history requires authenticated access to Davidson County Assessor database. Transaction signals sourced from Redfin instead.
 - **`months_of_supply`** — Not populated by Redfin at Nashville zip level. Derived from `inventory / homes_sold`.
+- **FRED duplicate observations** — Concurrent Airflow runs sharing the same watermark window can produce duplicate `observation_date` rows in `RAW.FRED_MORTGAGE_RATES` via the delete-then-insert idempotency pattern. Mitigated by `QUALIFY` deduplication in `stg_fred_mortgage_rates` and `max_active_runs=1` on the DAG.
+- **Building permits deduplication** — Metro Codes ArcGIS can return duplicate `permit_number` values across incremental loads. 33 duplicates observed; deduplicated via `QUALIFY ROW_NUMBER()` in `stg_building_permits`.
 
 ---
 
