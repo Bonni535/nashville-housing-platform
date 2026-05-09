@@ -40,3 +40,18 @@ models:
           - not_null
       - name: incidents_per_1k
         description: "Nullable for zero-population zip/year combos — monitored by assert_crime_rate_nulls test"
+
+  - name: int_permit_activity
+    description: "Building permits aggregated to annual zip level. Grain: zip_code + permit_year. Davidson County only — suburban zips have no rows, handled by neutral imputation in fct_opportunity_score."
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+      - name: permit_year
+        tests:
+          - not_null
+      - name: permit_count
+        tests:
+          - not_null
+      - name: total_construction_cost
+        description: "Nullable — some permits have no reported construction cost."
