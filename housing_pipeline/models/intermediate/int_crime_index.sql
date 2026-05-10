@@ -1,13 +1,30 @@
 -- models/intermediate/int_crime_index.sql
+--
+-- Annual crime rate per zip, normalized by residential population.
+-- Administrative entries (police inquiries, lost/found property, transport,
+-- natural deaths, etc.) are excluded — these inflated zip-level rates,
+-- particularly in high-activity areas like downtown Nashville (37213).
+--
+-- crime_category is defined in stg_crime_incidents and covers:
+--   Violent, Property, Drug, Other (all included here)
+--   Administrative                  (excluded here)
+--
+-- Grain: one row per zip_code + incident_year
+-- Downstream: fct_opportunity_score (safety_score signal)
 
 with crimes as (
 
     select
         zip_code,
-        year(incident_occurred)     as incident_year,
-        incident_type
+        year(incident_occurred) as incident_year,
+        crime_category
 
     from {{ ref('stg_crime_incidents') }}
+
+    -- Exclude non-criminal administrative entries.
+    -- This is the primary fix for inflated downtown crime rates.
+    -- POLICE INQUIRY alone accounted for ~167k of ~466k total incidents.
+    where crime_category != 'Administrative'
 
 ),
 
@@ -16,7 +33,7 @@ annual_counts as (
     select
         zip_code,
         incident_year,
-        count(*)                    as incident_count
+        count(*) as incident_count
 
     from crimes
 
