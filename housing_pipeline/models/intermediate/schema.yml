@@ -41,6 +41,24 @@ models:
       - name: incidents_per_1k
         description: "Nullable for zero-population zip/year combos — monitored by assert_crime_rate_nulls test"
 
+  - name: int_crime_by_category
+    description: "Annual crime rate per zip per category. Grain: zip_code + incident_year + crime_category. Administrative entries excluded. Powers the crime type filter in the dashboard Crime section."
+    columns:
+      - name: zip_code
+        tests:
+          - not_null
+      - name: incident_year
+        tests:
+          - not_null
+      - name: crime_category
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Violent', 'Property', 'Drug', 'Other']
+      - name: incident_count
+        tests:
+          - not_null      
+
   - name: int_permit_activity
     description: "Building permits aggregated to annual zip level. Grain: zip_code + permit_year. Davidson County only — suburban zips have no rows, handled by neutral imputation in fct_opportunity_score."
     columns:

@@ -52,7 +52,7 @@ models:
           - not_null
 
   - name: stg_crime_incidents
-    description: "MNPD crime incidents filtered to Nashville MSA zips"
+    description: "MNPD crime incidents filtered to Nashville MSA zips. Davidson County only."
     columns:
       - name: zip_code
         tests:
@@ -60,7 +60,12 @@ models:
       - name: incident_occurred
         tests:
           - not_null
-
+      - name: crime_category
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Violent', 'Property', 'Drug', 'Administrative', 'Other']
+              
   - name: stg_fred_mortgage_rates
     description: "FRED 30-year fixed mortgage rate (MORTGAGE30US), weekly, 2000–2026"
     columns:
