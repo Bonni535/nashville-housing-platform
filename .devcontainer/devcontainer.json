@@ -1,35 +1,39 @@
 {
   "name": "Nashville Housing Platform",
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
-  "postCreateCommand": "pip install uv && uv sync",
+
+  // Pass the .env file directly to the container so all Snowflake credentials
+  // and API keys are available as environment variables without needing them
+  // exported in the host shell first.
+  "runArgs": ["--env-file", "${localWorkspaceFolder}/.env"],
+
+  // --frozen ensures reproducible installs matching the committed uv.lock
+  "postCreateCommand": "pip install uv && uv sync --frozen",
+
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
-        "ms-python.pylance",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
         "innoverio.vscode-dbt-power-user",
-        "dorzey.vscode-sqlfluff"
+        "snowflake.snowflake-vsc"
       ],
       "settings": {
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
-        "sqlfluff.dialect": "snowflake",
-        "[sql]": {
-          "editor.defaultFormatter": "dorzey.vscode-sqlfluff"
-        }
+        "python.venvPath": "${workspaceFolder}",
+        "python.terminal.activateEnvironment": true,
+        "dbt.projectsDir": "${workspaceFolder}/housing_pipeline",
+        "dbt.dbtPythonPathOverride": "${workspaceFolder}/.venv/bin/python"
       }
     }
   },
-  "remoteEnv": {
-    "SNOWFLAKE_ACCOUNT": "${localEnv:SNOWFLAKE_ACCOUNT}",
-    "SNOWFLAKE_USER": "${localEnv:SNOWFLAKE_USER}",
-    "SNOWFLAKE_PASSWORD": "${localEnv:SNOWFLAKE_PASSWORD}",
-    "SNOWFLAKE_ROLE": "${localEnv:SNOWFLAKE_ROLE}",
-    "SNOWFLAKE_WAREHOUSE": "${localEnv:SNOWFLAKE_WAREHOUSE}",
-    "SNOWFLAKE_DATABASE": "${localEnv:SNOWFLAKE_DATABASE}",
-    "SNOWFLAKE_SCHEMA": "${localEnv:SNOWFLAKE_SCHEMA}",
-    "CENSUS_API_KEY": "${localEnv:CENSUS_API_KEY}",
-    "SLACK_WEBHOOK_URL": "${localEnv:SLACK_WEBHOOK_URL}",
-    "PIPELINE_ENV": "${localEnv:PIPELINE_ENV}"
-  },
-  "forwardPorts": [8080]
+
+  // 8082 — Airflow UI (run from host terminal, not inside container)
+  "forwardPorts": [8082],
+  "portsAttributes": {
+    "8082": {
+      "label": "Airflow UI",
+      "onAutoForward": "notify"
+    }
+  }
 }
