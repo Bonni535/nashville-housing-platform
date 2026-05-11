@@ -8,7 +8,7 @@ An end-to-end data engineering capstone project built at Nashville Software Scho
 
 The platform answers one question: **where in Nashville represents the best housing opportunity right now?**
 
-It computes a composite **Opportunity Score** (0–100) for each of 76 Nashville MSA zip codes using 7 signals: affordability, market speed, transaction activity, household income, poverty rate, crime safety, and building permit activity. The score is surfaced on an interactive choropleth map with adjustable signal weights, alongside trend charts for affordability, inventory, market momentum, and transactions.
+It computes a composite **Opportunity Score** (0–100) for each of 76 Nashville MSA zip codes using 7 signals: affordability, market speed, transaction activity, household income, poverty rate, crime safety, and building permit activity. Crime data is categorized into violent, property, drug, and other offenses — administrative police activity is excluded from scoring. The score is surfaced on an interactive choropleth map with adjustable signal weights, alongside trend charts for affordability, inventory, market momentum, transactions, and crime by category.
 
 ---
 
@@ -48,11 +48,13 @@ External APIs
                 ▼
         dbt STAGING (views)
         MSA filter + type casting + rename
+        Crime category classification (violent/property/drug/admin/other)
                 │
                 ▼
         dbt INTERMEDIATE (tables)
         int_zip_demographics, int_market_activity,
-        int_crime_index, int_permit_activity
+        int_crime_index (admin excluded), int_permit_activity,
+        int_crime_by_category
                 │
                 ▼
         dbt MARTS (tables)
@@ -62,8 +64,8 @@ External APIs
                 ▼
         Streamlit in Snowflake Dashboard
         Map · Affordability · Inventory ·
-        Crime · Momentum · Transactions ·
-        Pipeline Health
+        Crime (with category filter) · Momentum ·
+        Transactions · Pipeline Health
 
 Apache Airflow (Docker Compose, LocalExecutor)
     ├── daily_ingestion_dag  (6am daily)   — ingest + dbt run + dbt test
@@ -117,7 +119,7 @@ nashville-housing-platform/
 │   │   └── nashville_zip_regions.csv  — zip → region/county/fips mapping
 │   └── models/
 │       ├── staging/           — 7 views (stg_*)
-│       ├── intermediate/      — 4 tables (int_*)
+│       ├── intermediate/      — 5 tables (int_*)
 │       └── marts/             — 3 tables (fct_*, dim_*)
 │
 ├── airflow/
@@ -134,24 +136,14 @@ nashville-housing-platform/
 │
 ├── tests/
 │   └── ingestion/             — 106 unit tests for all ingestion modules
-│       ├── conftest.py
-│       ├── test_config.py
-│       ├── test_utils.py
-│       ├── test_fred.py
-│       ├── test_permits.py
-│       ├── test_census.py
-│       ├── test_crime.py
-│       ├── test_redfin.py
-│       ├── test_zillow.py
-│       └── test_property.py
 │
 ├── scripts/
-│   ├── build_seed_files.py    — Generates nashville_valid_zips.csv from Census crosswalk
-│   └── fetch_nashville_geojson.py  — One-time GeoJSON fetch + Snowflake stage upload
+│   ├── build_seed_files.py
+│   └── fetch_nashville_geojson.py
 │
 ├── .github/
 │   └── workflows/
-│       └── ci.yml             — Lint + dbt test on every PR to main
+│       └── ci.yml
 │
 ├── pyproject.toml
 ├── uv.lock
@@ -203,10 +195,10 @@ cd housing_pipeline
 uv run --env-file ../.env dbt debug    # verify connection
 uv run --env-file ../.env dbt seed     # load seed files
 uv run --env-file ../.env dbt run      # build all models
-uv run --env-file ../.env dbt test     # run all 54 tests
+uv run --env-file ../.env dbt test     # run all 61 tests
 ```
 
-All dbt commands must be run from inside `housing_pipeline/`. Running from repo root gives "dbt_project.yml not found".
+All dbt commands must be run from inside `housing_pipeline/`.
 
 ---
 
@@ -218,21 +210,14 @@ All dbt commands must be run from inside `housing_pipeline/`. Running from repo 
 uv run --env-file .env python ingestion/loader.py
 ```
 
-### Ingestion (individual sources)
-
-```bash
-uv run --env-file .env python -c "from ingestion.sources.zillow import run; run()"
-uv run --env-file .env python -c "from ingestion.sources.redfin import run; run()"
-```
-
 ### dbt (from housing_pipeline/)
 
 ```bash
 # Full run
 uv run --env-file ../.env dbt run
 
-# Single model + downstream
-uv run --env-file ../.env dbt run --select fct_opportunity_score+
+# Rebuild crime lineage after any change to stg_crime_incidents
+uv run --env-file ../.env dbt run --select stg_crime_incidents+
 
 # CI target (writes to HOUSING_PIPELINE.CI schema)
 uv run --env-file ../.env dbt run --target ci
@@ -244,28 +229,16 @@ uv run --env-file ../.env dbt run --target ci
 uv run pytest tests/ingestion/ -v
 ```
 
-Runs 106 unit tests covering all ingestion modules — config validation, watermark logic, transform functions, and HTTP client behavior. No Snowflake connection or API keys required; all external calls are mocked.
+106 unit tests, all passing. No Snowflake connection or API keys required.
 
 ### Airflow (from airflow/)
 
 ```bash
-# First time only
-docker-compose up airflow-init
-
-# Start
 docker-compose up airflow-webserver airflow-scheduler
-
 # UI: http://localhost:8082  (login: admin / admin)
-# Note: port 8082 because VS Code Helper occupies 8080
+# Note: port 8082 — VS Code Helper occupies 8080
+# Stale PID fix: docker exec airflow-airflow-webserver-1 rm -f /opt/airflow/airflow-webserver.pid && docker restart airflow-airflow-webserver-1
 ```
-
-### One-Time Setup: GeoJSON for Dashboard Map
-
-```bash
-uv run python scripts/fetch_nashville_geojson.py
-```
-
-This fetches Nashville MSA ZCTA boundaries from Census TIGERweb (layer 4), saves to `dashboard/nashville_zips.geojson`, creates the `DASHBOARD_ASSETS` stage in Snowflake, and uploads the file. Only needs to run once.
 
 ---
 
@@ -281,7 +254,7 @@ The dashboard runs in Streamlit in Snowflake (SiS):
 - **Map** — Choropleth of opportunity scores with 7 adjustable signal weight sliders
 - **Affordability** — ZHVI trend, sale price by region, mortgage rate, zip drill-down
 - **Inventory** — Active listings, months of supply, new listings, zip drill-down
-- **Crime** — Crime rate by zip and region, trend 2019–2026 (Davidson County only)
+- **Crime** — Crime rate by zip and region, category filter (All / Violent / Property / Drug / Other), MSA trend 2019–2026
 - **Momentum** — Days on market, sale-to-list ratio, zip drill-down
 - **Transactions** — Homes sold trend, building permits by zip
 - **Pipeline Health** — Airflow run history, dbt test results, source freshness
@@ -290,16 +263,14 @@ The dashboard runs in Streamlit in Snowflake (SiS):
 
 ## CI/CD
 
-GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every PR to `main`:
+GitHub Actions workflow runs on every PR to `main`:
 
-1. `ruff check .` — linting
-2. `dbt compile --target ci` — SQL syntax check
-3. `dbt test --target ci` — all 54 data tests against `HOUSING_PIPELINE.CI` schema
-4. `dbt source freshness --target ci` — source recency checks
+1. `ruff check .`
+2. `dbt compile --target ci`
+3. `dbt test --target ci` — all 61 data tests against `HOUSING_PIPELINE.CI`
+4. `dbt source freshness --target ci`
 
-Branch protection on `main` requires both `lint` and `dbt-ci` to pass before merge.
-
-Required GitHub secrets: `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PASSWORD`
+Branch protection requires both `lint` and `dbt-ci` to pass before merge.
 
 ---
 
@@ -314,27 +285,88 @@ The opportunity score is a min-max normalized composite of 7 signals, equal-weig
 | Activity | Redfin `homes_sold` | Direct |
 | Income | Census ACS5 `median_household_income` | Direct |
 | Low Poverty | Census ACS5 `poverty_rate` | Inverted |
-| Safety | MNPD `incidents_per_1k` | Inverted |
+| Safety | MNPD `incidents_per_1k` (admin excluded) | Inverted |
 | Permits | Metro Codes `permit_count` | Direct |
 
-**Score range:** ~40–82 across 76 Nashville MSA zip codes  
+**Crime scoring note:** Administrative MNPD entries (POLICE INQUIRY, LOST PROPERTY, FOUND PROPERTY, RECOVERY STOLEN, TRANSPORT, DEATH NATURAL, and similar) are excluded from the safety signal. Only criminal incidents (violent, property, drug, and other offenses) are counted. This reduced the Davidson County median from 9.3 to 6.4 per 1k residents.
+
+**Score range:** 40.8 – 73.5 across 76 Nashville MSA zip codes  
 **Data confidence:** High (52 zips) · Partial (19 zips) · Low (5 zips)
 
-Suburban zips with no MNPD or Metro Codes data are imputed with the MSA average for those signals rather than excluded.
+Suburban zips with no MNPD or Metro Codes data are imputed with the MSA average for those signals.
+
+---
+
+## dbt Model Reference
+
+| Layer | Model | Tests | Notes |
+|-------|-------|-------|-------|
+| Seeds | nashville_valid_zips | — | 76 MSA zips |
+| Seeds | nashville_zip_regions | — | zip → region/county/fips mapping |
+| Staging | stg_zillow | ✅ not_null, accepted_values | |
+| Staging | stg_redfin | ✅ not_null | |
+| Staging | stg_census_zip | ✅ not_null | |
+| Staging | stg_census_county | ✅ not_null | |
+| Staging | stg_crime_incidents | ✅ not_null, crime_category accepted_values | Adds crime_category CASE WHEN classification |
+| Staging | stg_fred_mortgage_rates | ✅ not_null, unique, accepted_values | QUALIFY dedup |
+| Staging | stg_building_permits | ✅ not_null, unique | QUALIFY dedup |
+| Intermediate | int_zip_demographics | ✅ not_null, unique | |
+| Intermediate | int_market_activity | ✅ not_null, unique grain | |
+| Intermediate | int_crime_index | ✅ not_null, unique grain | WHERE crime_category != 'Administrative' |
+| Intermediate | int_permit_activity | ✅ not_null, unique grain | |
+| Intermediate | int_crime_by_category | ✅ not_null, unique grain | (zip, year, category) grain — powers dashboard filter |
+| Marts | fct_monthly_zip | ✅ not_null, avg_mortgage_rate | |
+| Marts | dim_geography | ✅ not_null, unique | |
+| Marts | fct_opportunity_score | ✅ range, not_null, unique, accepted_values | Safety signal uses cleaned crime data |
+
+**Total dbt tests: 61 (all passing)**
+
+---
+
+## Current Data Highlights
+
+Live values as of May 2026:
+
+**Opportunity Score:**
+- Top zip: 37128 (Rutherford County) — score ~73
+- MSA average: ~59
+- Range: 40.8 – 73.5
+
+**Affordability:**
+- MSA median ZHVI: $444,819
+- MSA median sale price: $449,950
+- 30-yr mortgage rate: 6.18% (peaked ~8% in 2023–24)
+- Median household income: $86,164
+
+**Inventory:**
+- Median active inventory: 58 homes per zip
+- Months of supply: 1.8 (far below 6-month balanced threshold)
+
+**Crime (post Phase 9 cleanup):**
+- Davidson median crime rate: 6.4 per 1k (was 9.3 before admin exclusion)
+- Safest zip: 37064 (Franklin, Williamson County)
+- Highest crime zip: 37213 (Urban Core)
+- MSA trend: declining from ~35/1k in 2019 to ~7/1k in 2026
+
+**Market Momentum:**
+- Median days on market: 95 days
+- Sale-to-list ratio: 97.6%
+- Top permit zip: 37203 (downtown Nashville, by wide margin)
 
 ---
 
 ## Known Limitations
 
-- **Walk Score** — Free tier requires domain email. Future work: production would integrate Walk Score API for zip-level accessibility scoring.
-- **MNPD crime coverage** — Davidson County only. 23 suburban zips (Williamson, Rutherford, Wilson, Sumner) are imputed.
+- **Walk Score** — Free tier requires domain email. Future work: production deployment would integrate Walk Score API for zip-level accessibility scoring.
+- **MNPD crime coverage** — Davidson County only. 23 suburban zips (Williamson, Rutherford, Wilson, Sumner) are imputed with MSA average for the safety signal.
 - **Metro Codes permits** — Davidson County only, same 23 zips imputed. Rolling ~3-year window only.
 - **Crime history starts 2019** — Nashville's ArcGIS migration from Socrata did not carry pre-2019 data.
-- **Williamson County crime** — No public queryable FeatureServer API available.
-- **Nashville Parcels** — Public ArcGIS endpoint returns only ~3 arm's-length sale records. Full transaction history requires authenticated access to Davidson County Assessor database. Transaction signals sourced from Redfin instead.
-- **`months_of_supply`** — Not populated by Redfin at Nashville zip level. Derived from `inventory / homes_sold`.
-- **FRED duplicate observations** — Concurrent Airflow runs sharing the same watermark window can produce duplicate `observation_date` rows in `RAW.FRED_MORTGAGE_RATES` via the delete-then-insert idempotency pattern. Mitigated by `QUALIFY` deduplication in `stg_fred_mortgage_rates` and `max_active_runs=1` on the DAG.
-- **Building permits deduplication** — Metro Codes ArcGIS can return duplicate `permit_number` values across incremental loads. 33 duplicates observed; deduplicated via `QUALIFY ROW_NUMBER()` in `stg_building_permits`.
+- **Williamson County crime** — No public queryable FeatureServer API available. TBI CrimeInsight has data but no REST API; requires manual aggregation across ~20 law enforcement agencies.
+- **Nashville Parcels** — Public ArcGIS endpoint returns limited sale records and the `property.py` ingestion module is included in the repo but not used for opportunity scoring. Full transaction history requires authenticated access to Davidson County Assessor database. Transaction signals sourced from Redfin instead.
+- **`months_of_supply`** — Not populated by Redfin at Nashville zip level. Derived from `median_inventory / median_homes_sold`.
+- **FRED duplicate observations** — Concurrent Airflow runs can produce duplicate `observation_date` rows in `RAW.FRED_MORTGAGE_RATES`. Mitigated by `QUALIFY` deduplication in `stg_fred_mortgage_rates` and `max_active_runs=1` on the DAG.
+- **Building permits deduplication** — Metro Codes ArcGIS can return duplicate `permit_number` values across incremental loads. Deduplicated via `QUALIFY ROW_NUMBER()` in `stg_building_permits`.
+- **37232 (Urban Core Davidson)** — Real crime incidents but null `incidents_per_1k` due to zero Census residential population. Commercial/institutional zip; assigning a rate would be arbitrary.
 
 ---
 
