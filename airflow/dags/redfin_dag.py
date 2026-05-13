@@ -1,4 +1,3 @@
-# airflow/dags/redfin_dag.py
 
 import os
 from datetime import datetime, timedelta

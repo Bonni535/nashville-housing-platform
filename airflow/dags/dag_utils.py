@@ -1,4 +1,3 @@
-# airflow/dags/dag_utils.py
 
 import os
 import httpx
@@ -40,14 +39,14 @@ def write_audit_log(
     dag_id: str,
     run_id: str,
     status: str,
-    notes: str = None,
+    notes: str | None = None,
     dbt_tests_run: int = 0,
     dbt_tests_passed: int = 0,
-    freshness_redfin: str = None,
-    freshness_zillow: str = None,
-    freshness_property: str = None,
-    freshness_crime: str = None,
-    freshness_census: str = None,
+    freshness_redfin: str | None = None,
+    freshness_zillow: str | None = None,
+    freshness_property: str | None = None,
+    freshness_crime: str | None = None,
+    freshness_census: str | None = None,
 ) -> None:
     conn = snowflake.connector.connect(
         account=os.environ["SNOWFLAKE_ACCOUNT"],
