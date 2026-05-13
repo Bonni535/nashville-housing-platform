@@ -1,5 +1,3 @@
--- tests/assert_market_activity_unique_grain.sql
-
 select
     zip_code,
     period_month,

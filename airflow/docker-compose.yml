@@ -1,4 +1,3 @@
-# airflow/docker-compose.yml
 
 x-airflow-common: &airflow-common
   image: apache/airflow:2.9.1-python3.12

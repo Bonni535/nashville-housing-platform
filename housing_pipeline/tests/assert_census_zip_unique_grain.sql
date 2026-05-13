@@ -1,5 +1,3 @@
--- tests/assert_census_zip_unique_grain.sql
-
 select
     zip_code,
     vintage_year,

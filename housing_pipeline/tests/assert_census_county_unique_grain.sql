@@ -1,4 +1,3 @@
--- tests/assert_census_county_unique_grain.sql
 -- The grain of stg_census_county is county_fips + vintage_year.
 -- Fail if any combination appears more than once.
 

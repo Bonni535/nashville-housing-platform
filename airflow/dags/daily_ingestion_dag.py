@@ -1,4 +1,3 @@
-# airflow/dags/daily_ingestion_dag.py
 
 import json
 import os

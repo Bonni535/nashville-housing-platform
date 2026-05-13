@@ -1,5 +1,3 @@
--- tests/assert_crime_index_unique_grain.sql
-
 select
     zip_code,
     incident_year,

@@ -1,4 +1,3 @@
--- tests/assert_crime_rate_nulls.sql
 -- incidents_per_1k is null only for zero-population zip/year combos.
 -- Fail if null count exceeds 10 (current known count is 3).
 

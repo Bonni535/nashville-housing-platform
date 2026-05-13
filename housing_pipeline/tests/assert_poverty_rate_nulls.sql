@@ -1,4 +1,3 @@
--- tests/assert_poverty_rate_nulls.sql
 -- Poverty rate is null only for zero-population zips.
 -- Fail if null count exceeds 5 (current known count is 2).
 
