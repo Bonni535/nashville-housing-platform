@@ -8,7 +8,7 @@
   "runArgs": ["--env-file", "${localWorkspaceFolder}/.env"],
 
   // --frozen ensures reproducible installs matching the committed uv.lock
-  "postCreateCommand": "pip install uv && uv sync --frozen",
+  "postCreateCommand": "pip install uv && uv sync --frozen && git config core.autocrlf false && git config core.fileMode false && git config core.trustctime false",
 
   "customizations": {
     "vscode": {
