@@ -1,0 +1,27 @@
+agency_name,county,zip_code,coverage_type,notes
+Brentwood Police Department,Williamson,37067,municipal,Secondary Brentwood zip confirmed via DIM_GEOGRAPHY
+Fairview Police Department,Williamson,37062,municipal,
+Williamson County Sheriff's Office,Williamson,37014,county_unincorporated,Arrington
+Williamson County Sheriff's Office,Williamson,37046,county_unincorporated,College Grove
+Williamson County Sheriff's Office,Williamson,37174,county_unincorporated,Spring Hill - Spring Hill PD not in TBI system
+Williamson County Sheriff's Office,Williamson,37179,county_unincorporated,Thompson's Station
+Eagleville Police Department,Rutherford,37060,municipal,
+Murfreesboro Police Department,Rutherford,37127,municipal,
+Murfreesboro Police Department,Rutherford,37128,municipal,
+Murfreesboro Police Department,Rutherford,37129,municipal,
+Murfreesboro Police Department,Rutherford,37130,municipal,
+Rutherford County Sheriff's Office,Rutherford,37037,county_unincorporated,Christiana
+Rutherford County Sheriff's Office,Rutherford,37085,county_unincorporated,Lascassas
+Rutherford County Sheriff's Office,Rutherford,37118,county_unincorporated,Milton
+Rutherford County Sheriff's Office,Rutherford,37149,county_unincorporated,Readyville
+Rutherford County Sheriff's Office,Rutherford,37153,county_unincorporated,Rockvale
+Gallatin Police Department,Sumner,37066,municipal,
+Portland Police Department,Sumner,37148,municipal,
+Westmoreland Police Department,Sumner,37186,municipal,
+White House Police Department,Sumner,37188,municipal,
+Sumner County Sheriff's Office,Sumner,37022,county_unincorporated,Bethpage
+Sumner County Sheriff's Office,Sumner,37031,county_unincorporated,Castalian Springs
+Sumner County Sheriff's Office,Sumner,37048,county_unincorporated,Cottontown
+Lebanon Police Department,Wilson,37087,municipal,
+Lebanon Police Department,Wilson,37090,municipal,
+Watertown Police Department,Wilson,37184,municipal,
