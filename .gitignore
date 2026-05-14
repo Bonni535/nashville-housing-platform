@@ -39,3 +39,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 .user.yml
+
+# TBI raw data — manual annual downloads, do not commit
+data/tbi_raw/
